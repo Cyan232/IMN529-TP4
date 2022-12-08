@@ -30,8 +30,10 @@
 #include <stdio.h>
 #include <math.h>
 
-Couleur calculer_intensité_rayon(point O, vecteur dir, Objet* scene, const Camera& camera, entier* it);
-Couleur calcul_intensité_pt_inter(Objet* scene, const Camera& camera, vecteur dir, point pt_inter, vecteur vn, Couleurs couleurs, entier *it);
+
+
+Couleur calculer_intensite_rayon(point O, vecteur dir, Objet* scene, const Camera& camera, entier* it);
+Couleur calcul_intensite_pt_inter(Objet* scene, const Camera& camera, vecteur dir, point pt_inter, vecteur vn, Couleurs couleurs, entier *it);
 
 
 void Enregistre_pixel (int no_x, int no_y, Couleur intens, Fichier f)
@@ -87,8 +89,8 @@ booleen TraceRayons(const Camera& camera, Objet *scene, const entier& res, char 
 	f.Wentier(255);	f.Wchaine("\r");
 	point pixelPos;
 	vecteur dirPixel;
-	reel DX = (camera.Pmax() - camera.Pmin())/res;
-	reel DY = (camera.Hmax() - camera.Hmin())/res;
+	reel dx = 2.0 / nb_pixel_x;
+	reel dy = 2.0 / nb_pixel_y;
 	entier maxReflection = 0;
 
 
@@ -103,12 +105,12 @@ booleen TraceRayons(const Camera& camera, Objet *scene, const entier& res, char 
 // ...
 			Intensite = Intensite * 0;
 			maxReflection = 10;
-			pixelPos = point((((nb_pixel_x * DX) / 2) - (no_x * DX)) + (DX / 2), (((nb_pixel_y * DY) / 2) - (no_y * DY)) + (DY / 2), -camera.DV());
+			pixelPos = point(1.0 - (dx / 2) - (no_x - 1) * dx, 1.0 - (dy / 2) - (no_y - 1) * dy, 1);
 			pixelPos = transfInv.transforme(pixelPos);
-			dirPixel = vecteur(camera.PO(),pixelPos);
+			dirPixel = vecteur(camera.PO(), pixelPos);
 			dirPixel.normalise();
-			
-			Intensite = calculer_intensité_rayon(camera.PO(), dirPixel, scene, camera, &maxReflection);
+
+			Intensite = calculer_intensite_rayon(camera.PO(), dirPixel, scene, camera, &maxReflection);
 
 
 			Enregistre_pixel(no_x, no_y,Intensite, f);
@@ -128,7 +130,7 @@ booleen TraceRayons(const Camera& camera, Objet *scene, const entier& res, char 
 
 }
 
-Couleur calculer_intensité_rayon(point O, vecteur dir, Objet* scene, const Camera& camera, entier *it)
+Couleur calculer_intensite_rayon(point O, vecteur dir, Objet* scene, const Camera& camera, entier *it)
 {
 	Couleur result(0, 0, 0);
 
@@ -138,12 +140,12 @@ Couleur calculer_intensité_rayon(point O, vecteur dir, Objet* scene, const Camer
 		if (Objet_Inter(*scene, O, dir, &distance, &vNormal, &materiel))
 		{
 			point inter = (dir * distance) + camera.PO();
-			result = calcul_intensité_pt_inter(scene, camera, dir, inter, vNormal, materiel, it);
+			result = calcul_intensite_pt_inter(scene, camera, dir, inter, vNormal, materiel, it);
 		}
 		return result;
 }
 
-Couleur calcul_intensité_pt_inter(Objet* scene, const Camera& camera, vecteur dir, point pt_inter, vecteur vn, Couleurs couleurs, entier *it)
+Couleur calcul_intensite_pt_inter(Objet* scene, const Camera& camera, vecteur dir, point pt_inter, vecteur vn, Couleurs couleurs, entier *it)
 {
 	Couleur result(0.0, 0.0, 0.0), im(0, 0, 0);
 
@@ -173,20 +175,20 @@ Couleur calcul_intensité_pt_inter(Objet* scene, const Camera& camera, vecteur di
 	for (int i = 0; i < camera.NbLumiere(); i++)
 	{
 		result = Couleur(0, 0, 0);
-
+		const Lumiere* lum = camera.GetLumiere(i);
 		directionLumiere = vecteur(pt_inter, camera.Position(i));
 		distanceLumiere = directionLumiere.norme();
 		directionLumiere.normalise();
 
-		if (Objet_Inter(*scene, pt_inter, directionLumiere, &distanceInter, &vecteurtemp, &couleurstemp))
+		/*if (Objet_Inter(*scene, pt_inter, directionLumiere, &distanceInter, &vecteurtemp, &couleurstemp))
 		{
 			ilumine = abs(distanceInter) > abs(distanceLumiere) ? VRAI : FAUX;
 		}
 		else
 		{
 			ilumine = VRAI;
-		}
-
+		}*/
+		ilumine = lum->Eclaire(pt_inter) ? VRAI : FAUX;
 
 		if (ilumine)
 		{
@@ -196,13 +198,13 @@ Couleur calcul_intensité_pt_inter(Objet* scene, const Camera& camera, vecteur di
 			cosT = L * vn;
 			cosT = cosT < 0 ? 0 : cosT;
 
-			//Difus
-
+			//Difus		
 			//result = result + (camera.Diffuse(i) * couleurs.diffus()) * cosT;
+			result = result + (lum->Intensite() * couleurs.diffus()) * cosT;
 
 			//Ambiant
 			//result = result + (couleurs.diffus() * camera.Ambiante(i));
-
+			result = result + (lum->IntensiteAmbiante() * couleurs.diffus());
 
 			//speculaire
 			H = (L + O);
@@ -212,10 +214,12 @@ Couleur calcul_intensité_pt_inter(Objet* scene, const Camera& camera, vecteur di
 			cosA = cosA < 0 ? 0 : cosA;
 			cosA = cosT <= 0 ? 0 : cosA;
 			//result = result + (couleurs.speculaire() * camera.Diffuse(i)) * pow(cosA, 90);
+			result = result + (couleurs.speculaire() * lum->Intensite()) * pow(cosA, 90);
 		}
 		else
 		{
 			//result = result + (couleurs.diffus() * camera.Ambiante(i));
+			result = result + (couleurs.diffus() * lum->Intensite());
 		}
 
 
@@ -226,7 +230,7 @@ Couleur calcul_intensité_pt_inter(Objet* scene, const Camera& camera, vecteur di
 		RO = 2 * ((vn * O) * vn) - O;
 		RO.normalise();
 		*it = *it - 1;
-		im = calculer_intensité_rayon(pt_inter, RO, scene, camera, it);
+		im = calculer_intensite_rayon(pt_inter, RO, scene, camera, it);
 	}
 
 	return result + (couleurs.reflechi() * im);
