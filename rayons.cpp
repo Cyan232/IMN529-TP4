@@ -30,7 +30,8 @@
 #include <stdio.h>
 #include <math.h>
 
-
+#include "main.h"
+#include "PhotonMap.h"
 
 Couleur calculer_intensite_rayon(point O, vecteur dir, Objet* scene, const Camera& camera, entier* it);
 Couleur calcul_intensite_pt_inter(Objet* scene, const Camera& camera, vecteur dir, point pt_inter, vecteur vn, Couleurs couleurs, entier *it);
@@ -139,7 +140,7 @@ Couleur calculer_intensite_rayon(point O, vecteur dir, Objet* scene, const Camer
 		Couleurs materiel = Couleurs();
 		if (Objet_Inter(*scene, O, dir, &distance, &vNormal, &materiel))
 		{
-			point inter = (dir * distance) + camera.PO();
+			point inter = (dir * distance) + O;
 			result = calcul_intensite_pt_inter(scene, camera, dir, inter, vNormal, materiel, it);
 		}
 		return result;
@@ -164,6 +165,12 @@ Couleur calcul_intensite_pt_inter(Objet* scene, const Camera& camera, vecteur di
 	vecteur directionLumiere = vecteur();
 	reel distanceLumiere = 0;
 
+	//Param. pour les caustique.
+	PhotonMap* CaustiqueMap = pFenAff3D->PhotonTracing()->PhotonMapCaustique();
+	reel rayon = 0.3f;
+	int nphotons = 200, found;
+	reel* dist2 = NULL;
+	const Photon** ph = NULL;
 
 
 	if (((O * vn) / O.norme()) < 0)
@@ -180,14 +187,6 @@ Couleur calcul_intensite_pt_inter(Objet* scene, const Camera& camera, vecteur di
 		distanceLumiere = directionLumiere.norme();
 		directionLumiere.normalise();
 
-		/*if (Objet_Inter(*scene, pt_inter, directionLumiere, &distanceInter, &vecteurtemp, &couleurstemp))
-		{
-			ilumine = abs(distanceInter) > abs(distanceLumiere) ? VRAI : FAUX;
-		}
-		else
-		{
-			ilumine = VRAI;
-		}*/
 		ilumine = lum->Eclaire(pt_inter) ? VRAI : FAUX;
 
 		if (ilumine)
@@ -199,12 +198,10 @@ Couleur calcul_intensite_pt_inter(Objet* scene, const Camera& camera, vecteur di
 			cosT = cosT < 0 ? 0 : cosT;
 
 			//Difus		
-			//result = result + (camera.Diffuse(i) * couleurs.diffus()) * cosT;
 			result = result + (lum->Intensite() * couleurs.diffus()) * cosT;
 
 			//Ambiant
-			//result = result + (couleurs.diffus() * camera.Ambiante(i));
-			result = result + (lum->IntensiteAmbiante() * couleurs.diffus());
+			result = result + (lum->Intensite() * couleurs.ambiant());
 
 			//speculaire
 			H = (L + O);
@@ -213,18 +210,37 @@ Couleur calcul_intensite_pt_inter(Objet* scene, const Camera& camera, vecteur di
 			cosA = H * vn;
 			cosA = cosA < 0 ? 0 : cosA;
 			cosA = cosT <= 0 ? 0 : cosA;
-			//result = result + (couleurs.speculaire() * camera.Diffuse(i)) * pow(cosA, 90);
 			result = result + (couleurs.speculaire() * lum->Intensite()) * pow(cosA, 90);
 		}
 		else
 		{
-			//result = result + (couleurs.diffus() * camera.Ambiante(i));
 			result = result + (couleurs.diffus() * lum->Intensite());
 		}
 
 
 	}
 
+	//Implémentatio du Photon Mapping
+	CaustiqueMap->Locate(pt_inter, rayon, nphotons, found, &dist2, &ph);
+
+	Couleur puissanceTotal(0.0, 0.0, 0.0);
+
+	for (int i = 1; i < found; i++)
+	{
+		//if (((ph[i]->PhotonDir() * vn) / ph[i]->PhotonDir().norme()) > 0)
+		{
+			puissanceTotal = puissanceTotal+ ((ph[i]->energie()) * couleurs.diffus());
+		}
+	}
+
+	puissanceTotal = puissanceTotal/(PI * pow(rayon, 2));
+
+	result = result + puissanceTotal;
+
+	delete[] dist2;
+	delete[] ph;
+
+	//Reflection
 	if (couleurs.reflechi() != Couleur(0, 0, 0) && *it > 0)
 	{
 		RO = 2 * ((vn * O) * vn) - O;
@@ -235,7 +251,6 @@ Couleur calcul_intensite_pt_inter(Objet* scene, const Camera& camera, vecteur di
 
 	return result + (couleurs.reflechi() * im);
 	
-
 
 }
   
